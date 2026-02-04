@@ -1,5 +1,7 @@
 import random
 
+from .helper import get_distinct_sums
+
 class Dice:
     def __init__(self):
         self.sides = (1, 2, 3, 4, 5, 6)
@@ -35,5 +37,19 @@ class Player:
     def roll_dice(self, dice_instance1, dice_instance2):
         return sum(dice_instance1.roll() + dice_instance2.roll())
     
-    def tile_flip_options(self, box_instance):
+    def tile_flip_options(self, roll_total, box_instance):
+        options_list = get_distinct_sums(roll_total)
+        
+        for option in options_list:
+            for tile in option:
+                if box_instance.tiles[tile - 1] == "":
+                    options_list.remove(option)
+        return options_list 
+    
+    def tile_flip_choice(self, tiles_to_flip, roll_total, box_instance):
+        if tiles_to_flip in self.tile_flip_options(roll_total, box_instance):
+            for tile in tiles_to_flip:
+                box_instance.tiles[tile - 1] = ""
+        else:
+            print('Invalid Combination of Tiles Selected')
         return box_instance.tiles

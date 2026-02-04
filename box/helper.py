@@ -1,0 +1,10 @@
+def get_distinct_sums(target, start=1):
+    if target == 0:
+        return [[]]
+    results = []
+    for i in range(start, target + 1):
+        # Recursively find combinations for the remaining sum
+        # Using i + 1 ensures the next number is distinct and larger
+        for combo in get_distinct_sums(target - i, i + 1):
+            results.append([i] + combo)
+    return results
