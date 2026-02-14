@@ -43,7 +43,7 @@ class Player:
         for option in options_list:
             for tile in option:
                 if box_instance.tiles[tile - 1] == "":
-                    options_list.remove(option)
+                    options_list = [other_options for other_options in options_list if other_options != option].copy()
         return options_list 
     
     def tile_flip_choice(self, tiles_to_flip, roll_total, box_instance):

@@ -7,4 +7,7 @@ def get_distinct_sums(target, start=1):
         # Using i + 1 ensures the next number is distinct and larger
         for combo in get_distinct_sums(target - i, i + 1):
             results.append([i] + combo)
-    return results
+
+    adjusted_results = [flip_option for flip_option in results if max(flip_option) <= 9]
+
+    return adjusted_results
