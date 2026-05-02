@@ -2,17 +2,6 @@ from box import Dice, Box, Player
 
 import tensorflow as tf
 
-
-#from tensorflow import keras
-
-#from keras.layers import Dense
-
-import tensorflow as tf
-print("TensorFlow version:", tf.__version__)
-
-from tensorflow.keras.layers import Dense, Flatten, Conv2D
-from tensorflow.keras import Model
-
 import numpy as np
 
 first_dice = Dice()
@@ -56,6 +45,8 @@ def model_flip_box_update(model_flips, box):
     
     return box
 
+#print(tf.compat.v1.convert_to_tensor(np.array(flip_options_for_model(6, box, player)).reshape((1, 12, 9))))
+#print(tf.compat.v1.layers.placeholder(tf.float32, shape=(12,9)))
 
 #print(np.array(flip_options_for_model(6, box, player)).shape)
 #print(np.array(flip_options_for_model(6, box, player)).reshape((1, 12, 9)))
@@ -67,18 +58,20 @@ def model_flip_box_update(model_flips, box):
 
 model = tf.keras.models.Sequential([
   tf.keras.layers.Flatten(input_shape=(12, 9)),
+  tf.keras.layers.Dense(9, activation = None),#activation='relu'),
   tf.keras.layers.Dense(9, activation='relu'),
   tf.keras.layers.Dense(1, activation = 'sigmoid')
 ])
 
 # Create an instance of the model
 model = model
+"""
+print(tf.compat.v1)
 
-old="""
 initializer = tf.compat.v1.variance_scaling_initializer()
 # 2. Build the neural network
-inputs =  tf.compat.v1.layers.dense.placeholder(tf.float32, shape=(12,9))
-x = tf.fully_connected(inputs, 9, activation_fn=tf.nn.relu,
+inputs =  tf.compat.v1.layers.placeholder(tf.float32, shape=(12,9))
+x = tf.compat.v1.fully_connected(inputs, 9, activation_fn=tf.nn.relu,
 weights_initializer=initializer)
 outputs = tf.compat.v1.fully_connected(x, 1, activation_fn=None,
 weights_initializer=initializer)
@@ -88,7 +81,8 @@ model = tf.nn.sigmoid(outputs)"""
 
 #model.summary()
 
-input = tf.keras.ops.convert_to_tensor(np.array(flip_options_for_model(6, box, player)).reshape((1, 12, 9)))
+input = tf.convert_to_tensor(np.array(flip_options_for_model(6, box, player)).reshape((1, 12, 9)))
+#input = tf.compat.v1.convert_to_tensor(np.array(flip_options_for_model(6, box, player)).reshape((1, 12, 9)))
 print(input[0])
 
 output = model(input)
@@ -99,7 +93,7 @@ print(tf.keras.ops.argmax(output, axis=1).numpy()[0])
 #print(player.tile_flip_options(input_data[0][9], box))
 
 def tile_flip_decision(input, output):
-    decision = tf.keras.ops.argmax(output, axis=1).numpy()[0]
+    decision = tf.argmax(output, axis=1).numpy()[0]
     return input[0][decision]
 
 print(tile_flip_decision(input, output))
@@ -112,7 +106,7 @@ print(player.get_current_score(box))
 
 
 
-y = 1 - tf.keras.ops.max(output, axis=1).numpy()[0]
+y = 1.0 - float(tf.reduce_max(output, axis=1).numpy()[0])
 print(y)
 
 print(box.tiles)
@@ -131,11 +125,11 @@ def discount_rewards(rewards, discount_rate):
     return discounted_rewards
 
 def discount_and_normalize_rewards(all_rewards, discount_rate):
-    all_discounted_rewards = [discount_rewards(rewards)
+    all_discounted_rewards = [discount_rewards(rewards, discount_rate)
     for rewards in all_rewards]
     flat_rewards = np.concatenate(all_discounted_rewards)
     reward_mean = flat_rewards.mean()
-    reward_std = flat_rewards.std()
+    reward_std = flat_rewards.std() + 1e-8
     return [(discounted_rewards - reward_mean)/reward_std
     for discounted_rewards in all_discounted_rewards]
 
@@ -148,24 +142,7 @@ print(type(model.layers[1]))
 
 learning_rate = 0.01
 
-cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=model.layers[1])
-
-optimizer = tf.train.AdamOptimizer(learning_rate)
-
-grads_and_vars = optimizer.compute_gradients(cross_entropy)
-gradients = [grad for grad, variable in grads_and_vars]
-gradient_placeholders = []
-grads_and_vars_feed = []
-
-for grad, variable in grads_and_vars:
-    gradient_placeholder = tf.placeholder(tf.float32, shape=grad.get_shape())
-    gradient_placeholders.append(gradient_placeholder)
-    grads_and_vars_feed.append((gradient_placeholder, variable))
-    
-training_op = optimizer.apply_gradients(grads_and_vars_feed)
-
-init = tf.global_variables_initializer()
-saver = tf.train.Saver()
+optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 n_iterations = 250 # number of training iterations
 n_max_steps = 1000 # max steps per episode
@@ -173,63 +150,79 @@ n_games_per_update = 10 # train the policy every 10 episodes
 save_iterations = 10 # save the model every 10 training iterations
 discount_rate = 0.95
 
-with tf.Session() as sess:
-    init.run()
-    for iteration in range(n_iterations):
-        all_rewards = [] # all sequences of raw rewards for each episode
-        all_gradients = [] # gradients saved at each step of each episode
-        for game in range(n_games_per_update):
-            current_rewards = [] # all raw rewards from the current episode
-            current_gradients = [] # all gradients from the current episode
+checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
+checkpoint_manager = tf.train.CheckpointManager(
+    checkpoint, "./my_policy_net_pg_tf2", max_to_keep=3
+)
 
-            
-            first_dice = Dice()
-            second_dice = Dice()
+for iteration in range(n_iterations):
+    all_rewards = []  # all sequences of raw rewards for each episode
+    all_gradients = []  # gradients saved at each step of each episode
+    for game in range(n_games_per_update):
+        current_rewards = []  # all raw rewards from the current episode
+        current_gradients = []  # gradients from the current episode
 
-            box = Box()
+        first_dice = Dice()
+        second_dice = Dice()
+        box = Box()
+        player = Player(box, first_dice, second_dice)
 
-            player = Player(box, first_dice, second_dice)
+        for step in range(9):
+            roll_total = first_dice.roll()[0] + second_dice.roll()[0]
+            done = len(player.tile_flip_options(roll_total, box)) == 0
+            if done:
+                break
 
-            for step in range(9):
+            model_input = tf.convert_to_tensor(
+                np.array(flip_options_for_model(roll_total, box, player)).reshape((1, 12, 9)),
+                dtype=tf.float32,
+            )
 
-                obs = box.tiles
-                reward = 123456789 - player.get_current_score(box)
-                roll_total = first_dice.roll()[0] + second_dice.roll()[0]
-                done = len(player.tile_flip_options(roll_total, box)) == 0
+            with tf.GradientTape() as tape:
+                output = model(model_input, training=True)
+                action_idx = tf.argmax(output, axis=1)
+                action_score = tf.reduce_max(output, axis=1)
+                y_true = tf.ones_like(action_score)
+                loss = tf.keras.losses.binary_crossentropy(y_true, action_score)
+                loss = tf.reduce_mean(loss)
 
-                input = keras.ops.convert_to_tensor(np.array(flip_options_for_model(roll_total, box, player)).reshape((1, 12, 9)))
+            gradients = tape.gradient(loss, model.trainable_variables)
+            gradients = [
+                tf.zeros_like(var) if grad is None else grad
+                for grad, var in zip(gradients, model.trainable_variables)
+            ]
 
-                output = model(input)
+            selected_flip = model_input[0][int(action_idx.numpy()[0])]
+            model_flip_box_update(selected_flip.numpy(), box)
 
-                #print(tile_flip_decision(input, output))
+            #print(player.get_current_score(box))
 
-                action_val, gradients_val = sess.run(
-                        [tile_flip_decision(input, output), gradients],
-                        feed_dict={inputs: obs.reshape(1, 9)}) # one obs
-                
-                #obs, reward, done, info = env.step(action_val[0][0])
-                current_rewards.append(1 * reward)
-                current_gradients.append(gradients_val)
-                if done:
-                    break
-            all_rewards.append(current_rewards)
-            all_gradients.append(current_gradients)
+            reward = 123456789 - player.get_current_score(box)
+            current_rewards.append(float(reward))
+            current_gradients.append(gradients)
 
-        # At this point we have run the policy for 10 episodes, and we are
-        # ready for a policy update using the algorithm described earlier.
-        all_rewards = discount_and_normalize_rewards(all_rewards)
-        feed_dict = {}
-        for var_index, grad_placeholder in enumerate(gradient_placeholders):
-            # multiply the gradients by the action scores, and compute the mean
-            mean_gradients = np.mean(
-                [reward * all_gradients[game_index][step][var_index]
-            for game_index, rewards in enumerate(all_rewards)
-            for step, reward in enumerate(rewards)],
- axis=0)
-        feed_dict[grad_placeholder] = mean_gradients
-    sess.run(training_op, feed_dict=feed_dict)
+        all_rewards.append(current_rewards)
+        all_gradients.append(current_gradients)
+
+    all_rewards = discount_and_normalize_rewards(all_rewards, discount_rate)
+
+    mean_gradients = []
+    for var_index in range(len(model.trainable_variables)):
+        weighted_grads = []
+        for game_index, rewards in enumerate(all_rewards):
+            for step, reward in enumerate(rewards):
+                weighted_grads.append(reward * all_gradients[game_index][step][var_index])
+
+        if weighted_grads:
+            grad_tensor = tf.reduce_mean(tf.stack(weighted_grads, axis=0), axis=0)
+        else:
+            grad_tensor = tf.zeros_like(model.trainable_variables[var_index])
+        mean_gradients.append(grad_tensor)
+
+    optimizer.apply_gradients(zip(mean_gradients, model.trainable_variables))
+
     if iteration % save_iterations == 0:
-        saver.save(sess, "./my_policy_net_pg.ckpt")
+        checkpoint_manager.save()
 
 
 #optimizer = keras.optimizers.Adam(learning_rate)

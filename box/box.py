@@ -23,6 +23,9 @@ class Box:
             if tile != "":
                 score_str = score_str + str(tile)
 
+        if score_str == "":
+            score_str = "0"
+
         return int(score_str)
 
 class Player:
